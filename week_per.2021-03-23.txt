@@ -1,0 +1,90 @@
+WITH t as (
+select distinct 
+	date_
+	, week_ss
+from tech.time_series 
+where true
+	and date_ >= CURRENT_DATE - interval '5 week'
+	and date_ <= CURRENT_DATE
+)
+
+,t_w as (
+select distinct week_ss
+	,max(date_)
+	,'Week ' || right(week_ss,2) || ' ' || to_char(max(date_) + interval '1 day','Mon-dd') || ' to ' || to_char(max(date_) + interval '7 day','Mon-dd') week_str
+from t
+group by 1
+)
+
+,nc AS (
+SELECT
+ week_ss AS date
+  ,count(*) as new_customers
+FROM t left join tech.data_customer c on date(first_order_at) = date_
+WHERE date_ >= '2021-02-02'
+GROUP BY 1
+)
+
+,d as (
+SELECT week_ss date
+	,sum(case when event_name = 'first_open' then users else 0 end) users
+FROM t_w left join ga.events_week w on week_ss = left(year_week,4) || '-' || right(year_week,2) 
+group by 1
+order by 1
+)
+
+,ba AS (
+SELECT distinct
+	week_ss as date-- to_timestamp(year_week,'yyyyww') date
+	,max(users) users
+FROM t left join ga.metrics_week w on week_ss = left(year_week,4) || '-' || right(year_week,2) 
+WHERE true
+	and date_ >= '2021-02-02'
+group by 1
+order by 1
+)
+
+,compl as (
+select 
+	week_ss as date
+	,count(order_number) AS handovered_orders
+from t left join tech.data_so so on date_ = date(completed_at)
+where true
+	and so.completed_at is not null
+	and so.created_at >= '2021-02-02'
+group by 1
+order by 1
+)
+
+
+,fa as (
+select 
+	week_ss as date -- date_trunc('week',created_at) date
+	,round(avg(so.grand_total),0) AS avg_order_value
+	,COUNT(DISTINCT so.customer_id) AS customers
+from t left join tech.data_so so on date_ = date(created_at)
+where true
+	and so.state NOT IN ('waiting_for_payment','payment_failed','waiting_last_ov','need_to_review')
+-- 	and so.created_at >= CURRENT_DATE - INTERVAL '1999' DAY
+	and so.created_at >= '2021-02-02'
+group by 1
+)
+
+SELECT distinct 
+	t_w.week_str as week
+	,coalesce(d.users,0) downloads
+	,coalesce(ba.users,0) unique_visitors 
+	,coalesce(customers,0) customers	
+	,round(coalesce(customers,0)*100/(coalesce(ba.users,0)+0.000001)) conversion_rate
+		,coalesce(new_customers,0) new_customers
+		,coalesce(compl.handovered_orders,0) handovered_orders
+		,coalesce(fa.avg_order_value,0) avg_order_value
+FROM t
+	left join t_w on t_w.week_ss = t.week_ss
+	left join ba on t.week_ss = ba.date
+	left join nc on t.week_ss = nc.date
+	left join fa on t.week_ss = fa.date
+	left join compl on t.week_ss = compl.date
+	left join d on t.week_ss = d.date
+where true 
+order by 1
