@@ -1,0 +1,17 @@
+with a as (
+SELECT 
+	source_sku
+	,sku_name
+	,station
+	,sum(selling_quantity) selling_quantity
+	,max(updated_at) max_updated_at
+FROM tech.data_stock
+where source_sku = '00980781'
+group by 1,2,3
+)
+
+select a.source_sku
+	,case when t.updated_at = a.max_updated_at then bin_number else null end last_bin
+from tech.data_stock t
+	left join a on t.source_sku = a.source_sku
+where a.source_sku is not null
